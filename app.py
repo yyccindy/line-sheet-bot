@@ -1,46 +1,62 @@
-from flask import Flask, request
-import json
 import os
+import json
+from flask import Flask, request, abort
 import gspread
 from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-
+# 讀取 Google Service Account JSON
 SERVICE_ACCOUNT_INFO = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
-CREDS = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
-GC = gspread.authorize(CREDS)
 
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
+creds = Credentials.from_service_account_info(
+    SERVICE_ACCOUNT_INFO, scopes=SCOPES
+)
+
+gc = gspread.authorize(creds)
+
+# Google Sheet ID
 SHEET_ID = os.environ["SHEET_ID"]
-SPREADSHEET = GC.open_by_key(SHEET_ID)
 
-RAW = SPREADSHEET.worksheet("raw_log")
-REPORT = SPREADSHEET.worksheet("parsed_report")
+sheet = gc.open_by_key(SHEET_ID).sheet1
+
 
 @app.route("/", methods=["GET"])
 def home():
     return "ok"
 
-@app.route("/callback", methods=["POST"])
-def callback():
 
-    data = request.json
+@app.route("/webhook", methods=["POST"])
+def webhook():
 
-    for ev in data["events"]:
+    body = request.json
 
-        if ev["type"] != "message":
+    events = body.get("events", [])
+
+    for event in events:
+
+        if event["type"] != "message":
             continue
 
-        if ev["message"]["type"] != "text":
+        if event["message"]["type"] != "text":
             continue
 
-        text = ev["message"]["text"]
+        text = event["message"]["text"]
+        user_id = event["source"].get("userId", "")
 
-        RAW.append_row(["", "", "", "", "", "", "", "", text])
+        sheet.append_row([
+            user_id,
+            text
+        ])
 
-    return "ok"
+    return "OK"
+
 
 if __name__ == "__main__":
-
-    app.run()
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
