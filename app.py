@@ -7,8 +7,8 @@ from datetime import datetime, timezone, timedelta
 
 import requests
 import gspread
-from flask import Flask, request, abort
 import google.auth
+from flask import Flask, request, abort
 
 app = Flask(__name__)
 
@@ -28,7 +28,7 @@ TW_TZ = timezone(timedelta(hours=8))
 def get_gspread_client():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
+        "https://www.googleapis.com/auth/drive",
     ]
     creds, _ = google.auth.default(scopes=scopes)
     return gspread.authorize(creds)
@@ -60,7 +60,7 @@ def verify_line_signature(body: str, signature: str) -> bool:
     hash_bytes = hmac.new(
         LINE_CHANNEL_SECRET.encode("utf-8"),
         body.encode("utf-8"),
-        hashlib.sha256
+        hashlib.sha256,
     ).digest()
 
     computed_signature = base64.b64encode(hash_bytes).decode("utf-8")
@@ -96,16 +96,16 @@ def reply_text(reply_token: str, text: str):
     url = "https://api.line.me/v2/bot/message/reply"
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
     }
     payload = {
         "replyToken": reply_token,
         "messages": [
             {
                 "type": "text",
-                "text": text
+                "text": text,
             }
-        ]
+        ],
     }
 
     try:
@@ -165,7 +165,7 @@ def build_raw_row(user_id: str, text: str) -> list:
     return [
         now_tw_str(),
         user_id,
-        text
+        text,
     ]
 
 
@@ -182,7 +182,7 @@ def build_form_row(user_id: str, display_name: str, text: str) -> list:
         parsed.get("錯誤件號", ""),
         parsed.get("錯誤工代", ""),
         parsed.get("正確件號", ""),
-        parsed.get("正確工代", "")
+        parsed.get("正確工代", ""),
     ]
 
 
@@ -197,7 +197,7 @@ def is_structured_case_text(text: str) -> bool:
 # =========================
 @app.route("/", methods=["GET"])
 def home():
-    return "OK", 200
+    return "VERSION-20260309-NEW", 200
 
 
 @app.route("/callback", methods=["POST"])
