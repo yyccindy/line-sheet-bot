@@ -15,13 +15,10 @@ app = Flask(__name__)
 # =========================
 # Environment variables
 # =========================
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
-LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
-GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "")
-
-# Render 比較方便的做法：把 service account JSON 整包放環境變數
-# 例如 GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
-GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
+LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "").strip()
+GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "").strip()
+GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
 
 # 台灣時間
 TW_TZ = timezone(timedelta(hours=8))
@@ -33,7 +30,10 @@ def get_gspread_client():
     if not GOOGLE_SERVICE_ACCOUNT_JSON:
         raise ValueError("Missing GOOGLE_SERVICE_ACCOUNT_JSON")
 
-    service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+    try:
+        service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid GOOGLE_SERVICE_ACCOUNT_JSON: {e}")
 
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -43,18 +43,30 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
     return gspread.authorize(creds)
 
+
 def get_worksheets():
+    if not GOOGLE_SHEET_NAME:
+        raise ValueError("Missing GOOGLE_SHEET_NAME")
+
     gc = get_gspread_client()
+    print("GOOGLE_SHEET_NAME:", GOOGLE_SHEET_NAME)
+
     spreadsheet = gc.open(GOOGLE_SHEET_NAME)
     raw_ws = spreadsheet.worksheet("raw_log")
     form_ws = spreadsheet.worksheet("form_data")
     return raw_ws, form_ws
+
 
 # =========================
 # LINE helpers
 # =========================
 def verify_line_signature(body: str, signature: str) -> bool:
     if not LINE_CHANNEL_SECRET:
+        print("Missing LINE_CHANNEL_SECRET")
+        return False
+
+    if not signature:
+        print("Missing X-Line-Signature header")
         return False
 
     hash_bytes = hmac.new(
@@ -66,10 +78,11 @@ def verify_line_signature(body: str, signature: str) -> bool:
     computed_signature = base64.b64encode(hash_bytes).decode("utf-8")
     return hmac.compare_digest(computed_signature, signature)
 
+
 def get_display_name(user_id: str) -> str:
     """
     只在 1-on-1 聊天最穩。
-    如果 LINE 端拿不到 profile，就回空字串，不讓整個 webhook 壞掉。
+    抓不到就回空字串，不讓 webhook 壞掉。
     """
     if not user_id or not LINE_CHANNEL_ACCESS_TOKEN:
         return ""
@@ -82,12 +95,15 @@ def get_display_name(user_id: str) -> str:
     try:
         r = requests.get(url, headers=headers, timeout=10)
         if r.status_code == 200:
-            return r.json().get("displayName", "")
+            data = r.json()
+            return data.get("displayName", "")
+
         print("get_display_name failed:", r.status_code, r.text)
         return ""
     except Exception as e:
-        print("get_display_name exception:", str(e))
+        print("get_display_name exception:", repr(e))
         return ""
+
 
 def reply_text(reply_token: str, text: str):
     if not reply_token or not LINE_CHANNEL_ACCESS_TOKEN:
@@ -113,7 +129,8 @@ def reply_text(reply_token: str, text: str):
         if r.status_code != 200:
             print("reply_text failed:", r.status_code, r.text)
     except Exception as e:
-        print("reply_text exception:", str(e))
+        print("reply_text exception:", repr(e))
+
 
 # =========================
 # Parsing helpers
@@ -127,6 +144,7 @@ EXPECTED_FIELDS = [
     "正確件號",
     "正確工代",
 ]
+
 
 def parse_multiline_text(text: str) -> dict:
     """
@@ -160,8 +178,18 @@ def parse_multiline_text(text: str) -> dict:
 
     return data
 
+
 def now_tw_str() -> str:
     return datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def build_raw_row(user_id: str, text: str) -> list:
+    return [
+        now_tw_str(),   # received_at
+        user_id,        # user_id
+        text            # raw_text
+    ]
+
 
 def build_form_row(user_id: str, display_name: str, text: str) -> list:
     parsed = parse_multiline_text(text)
@@ -179,21 +207,15 @@ def build_form_row(user_id: str, display_name: str, text: str) -> list:
         parsed.get("正確工代", "")
     ]
 
-def build_raw_row(user_id: str, text: str) -> list:
-    return [
-        now_tw_str(),  # received_at
-        user_id,       # user_id
-        text           # raw_text
-    ]
 
 def is_structured_case_text(text: str) -> bool:
     """
-    至少有抓到幾個關鍵欄位才寫進 form_data
-    避免普通聊天訊息也被塞進正式表
+    至少抓到 3 個以上欄位才算正式資料
     """
     parsed = parse_multiline_text(text)
     matched_count = sum(1 for field in EXPECTED_FIELDS if parsed.get(field))
     return matched_count >= 3
+
 
 # =========================
 # Routes
@@ -201,6 +223,7 @@ def is_structured_case_text(text: str) -> bool:
 @app.route("/", methods=["GET"])
 def home():
     return "OK", 200
+
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -218,20 +241,30 @@ def callback():
         payload = json.loads(body)
         events = payload.get("events", [])
 
+        # LINE Developers 按 Verify 時，events 可能是空的
+        if not events:
+            print("No events in payload, return 200 for verify")
+            return "OK", 200
+
         raw_ws, form_ws = get_worksheets()
 
         for event in events:
-            event_type = event.get("type")
+            print("===== EVENT =====")
+            print(json.dumps(event, ensure_ascii=False))
 
-            # 只處理文字訊息
-            if event_type != "message":
-                continue
-            if event.get("message", {}).get("type") != "text":
+            if event.get("type") != "message":
+                print("Skip non-message event")
                 continue
 
-            user_id = event.get("source", {}).get("userId", "")
+            message = event.get("message", {})
+            if message.get("type") != "text":
+                print("Skip non-text message")
+                continue
+
+            source = event.get("source", {})
+            user_id = source.get("userId", "")
             reply_token = event.get("replyToken", "")
-            text = event.get("message", {}).get("text", "").strip()
+            text = message.get("text", "").strip()
 
             print("TEXT:", text)
             print("USER_ID:", user_id)
@@ -268,8 +301,10 @@ def callback():
         return "OK", 200
 
     except Exception as e:
-        print("Webhook exception:", str(e))
+        print("Webhook exception type:", type(e).__name__)
+        print("Webhook exception detail:", repr(e))
         return "Internal Server Error", 500
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
