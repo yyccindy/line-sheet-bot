@@ -9,6 +9,7 @@ import requests
 import gspread
 import google.auth
 from flask import Flask, request, abort
+from google.cloud import storage
 
 app = Flask(__name__)
 
@@ -402,13 +403,13 @@ def callback():
                     "已收到訊息。\n\n"
                     "若要逐題填寫，請輸入：開始回報\n\n"
                     "若要一次貼上，請依照以下格式傳送：\n"
-                    "服務廠: 台北\n"
-                    "專員: Jason\n"
-                    "車號: ABC123\n"
-                    "錯誤件號: 111\n"
-                    "錯誤工代: 222\n"
-                    "正確件號: 333\n"
-                    "正確工代: 444"
+                    "服務廠:\n"
+                    "專員:\n"
+                    "車號:\n"
+                    "錯誤件號:\n"
+                    "錯誤工代:\n"
+                    "正確件號:\n"
+                    "正確工代: "
                 )
 
         return "OK", 200
