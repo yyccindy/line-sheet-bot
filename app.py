@@ -232,7 +232,7 @@ def now_tw_str() -> str:
 
 
 def generate_random_suffix(length: int = 2) -> str:
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 
 def generate_case_id(form_ws) -> str:
@@ -484,7 +484,7 @@ def build_partial_preview(user_id: str) -> str:
 # =========================
 @app.route("/", methods=["GET"])
 def home():
-    return "VERSION-20260323-FINAL-FULL", 200
+    return "VERSION-20260323-FINAL-FULL-VIEW-CONTINUE", 200
 
 
 @app.route("/callback", methods=["POST"])
@@ -589,20 +589,23 @@ def callback():
                 current_state = get_state(user_id)
 
                 if current_state == STATE_FILLING_FORM:
+                    current_prompt = get_current_question_prompt(user_id)
                     reply_text(
                         reply_token,
                         "目前正在填寫案件資料，請直接輸入文字內容。\n\n"
-                        "可用指令：上一題｜重填｜查看｜取消"
+                        "可用指令：上一題｜重填｜查看｜取消\n\n"
+                        f"請繼續回答目前這一題：\n{current_prompt}"
                     )
                 elif current_state == STATE_ASK_HAS_IMAGE:
                     reply_text(
                         reply_token,
-                        "請回覆「是」或「否」，確認是否需要補充圖片。"
+                        "請繼續回答是否需要補充圖片：\n請回覆：是 / 否"
                     )
                 elif current_state == STATE_UPLOADING_IMAGES:
                     reply_text(
                         reply_token,
                         "目前為圖片上傳模式，請直接傳送圖片。\n"
+                        "若還有圖片請繼續上傳；\n"
                         "全部完成後請輸入：完成"
                     )
                 else:
@@ -659,22 +662,24 @@ def callback():
             # 狀態：填寫文字問題
             # =========================
             if current_state == STATE_FILLING_FORM:
-                # 指令：上一題
                 if text == "上一題":
                     success = go_to_previous_question(user_id)
 
                     if not success:
-                        reply_text(reply_token, "已經是第一題了，無法再返回。")
+                        current_prompt = get_current_question_prompt(user_id)
+                        reply_text(
+                            reply_token,
+                            "已經是第一題了，無法再返回。\n\n"
+                            f"請繼續回答目前這一題：\n{current_prompt}"
+                        )
                         continue
 
                     prompt = get_current_question_prompt(user_id)
                     reply_text(reply_token, f"已返回上一題 👆\n\n{prompt}")
                     continue
 
-                # 指令：重填
                 if text in ["重填", "重新開始"]:
                     reset_answers(user_id)
-
                     prompt = get_current_question_prompt(user_id)
                     reply_text(
                         reply_token,
@@ -682,17 +687,26 @@ def callback():
                     )
                     continue
 
-                # 指令：查看
                 if text == "查看":
                     preview = build_partial_preview(user_id)
+                    current_prompt = get_current_question_prompt(user_id)
                     reply_text(
                         reply_token,
-                        "目前填寫內容如下：\n\n" + preview
+                        "目前填寫內容如下：\n\n"
+                        f"{preview}\n\n"
+                        "請繼續回答目前這一題：\n"
+                        f"{current_prompt}"
                     )
                     continue
 
                 if not text:
-                    reply_text(reply_token, "此欄位尚未填寫，請直接輸入內容。")
+                    current_prompt = get_current_question_prompt(user_id)
+                    reply_text(
+                        reply_token,
+                        "此欄位尚未填寫，請直接輸入內容。\n\n"
+                        "請繼續回答目前這一題：\n"
+                        f"{current_prompt}"
+                    )
                     continue
 
                 save_current_answer(user_id, text)
@@ -720,7 +734,10 @@ def callback():
                     preview = build_partial_preview(user_id)
                     reply_text(
                         reply_token,
-                        "目前填寫內容如下：\n\n" + preview + "\n\n請回覆：是 / 否"
+                        "目前填寫內容如下：\n\n"
+                        f"{preview}\n\n"
+                        "請繼續回答是否需要補充圖片：\n"
+                        "請回覆：是 / 否"
                     )
                     continue
 
@@ -771,7 +788,12 @@ def callback():
                     )
                     continue
 
-                reply_text(reply_token, "請回覆「是」或「否」。")
+                reply_text(
+                    reply_token,
+                    "請回覆「是」或「否」。\n\n"
+                    "請繼續回答是否需要補充圖片：\n"
+                    "請回覆：是 / 否"
+                )
                 continue
 
             # =========================
@@ -800,13 +822,18 @@ def callback():
                     image_count = get_image_count(user_id)
                     reply_text(
                         reply_token,
-                        f"目前案件內容如下：\n\n{preview_text}\n\n目前已收到 {image_count} 張圖片。"
+                        f"目前案件內容如下：\n\n"
+                        f"{preview_text}\n\n"
+                        f"目前已收到 {image_count} 張圖片。\n\n"
+                        "若還有圖片請繼續上傳；\n"
+                        "全部完成後請輸入：完成"
                     )
                     continue
 
                 reply_text(
                     reply_token,
                     "目前為圖片上傳模式，請直接傳送圖片。\n"
+                    "若還有圖片請繼續上傳；\n"
                     "全部完成後請輸入：完成"
                 )
                 continue
