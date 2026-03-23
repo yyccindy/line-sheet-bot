@@ -16,6 +16,7 @@ from services import (
     get_line_image_content,
     reply_text,
     reply_texts,
+    safe_append_row,
     upload_image_to_gcs,
 )
 
@@ -239,7 +240,7 @@ def handle_non_text(reply_token: str, user_id: str):
 
 
 def handle_image_message(raw_ws, image_ws, reply_token: str, user_id: str, message_id: str):
-    raw_ws.append_row(build_raw_row(user_id, f"[IMAGE:{message_id}]"), value_input_option="USER_ENTERED")
+    safe_append_row(raw_ws, build_raw_row(user_id, f"[IMAGE:{message_id}]"))
 
     if get_state(user_id) != STATE_UPLOADING_IMAGES:
         reply_text(reply_token, "目前尚未進入圖片補充流程。\n請先輸入「開始回報」，完成案件資料填寫後再上傳圖片。")
