@@ -3,6 +3,8 @@ import json
 import hmac
 import hashlib
 import base64
+import random
+import string
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -212,8 +214,47 @@ def now_tw_str() -> str:
     return datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def generate_case_id() -> str:
-    return "CASE_" + datetime.now(TW_TZ).strftime("%Y%m%d%H%M%S%f")
+def generate_random_suffix(length: int = 2) -> str:
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+
+def generate_case_id(form_ws) -> str:
+    today_str = datetime.now(TW_TZ).strftime("%Y%m%d")
+
+    try:
+        records = form_ws.get_all_values()
+
+        # 取 case_id 欄（第 1 欄），跳過標題列
+        case_ids = [
+            row[0].strip()
+            for row in records[1:]
+            if row and len(row) > 0 and row[0].strip()
+        ]
+
+        # 格式: CASE-20260323-001-A7
+        today_case_ids = [
+            cid for cid in case_ids
+            if cid.startswith(f"CASE-{today_str}-")
+        ]
+
+        seq_numbers = []
+        for cid in today_case_ids:
+            try:
+                parts = cid.split("-")
+                if len(parts) >= 4:
+                    seq_numbers.append(int(parts[2]))
+            except Exception:
+                continue
+
+        next_seq = max(seq_numbers) + 1 if seq_numbers else 1
+        suffix = generate_random_suffix(2)
+
+        return f"CASE-{today_str}-{str(next_seq).zfill(3)}-{suffix}"
+
+    except Exception as e:
+        print("generate_case_id exception:", repr(e))
+        suffix = generate_random_suffix(2)
+        return f"CASE-{today_str}-001-{suffix}"
 
 
 def build_raw_row(user_id: str, text: str) -> list:
@@ -224,7 +265,13 @@ def build_raw_row(user_id: str, text: str) -> list:
     ]
 
 
-def build_form_row_from_dict(user_id: str, display_name: str, case_id: str, parsed: dict, has_image: str) -> list:
+def build_form_row_from_dict(
+    user_id: str,
+    display_name: str,
+    case_id: str,
+    parsed: dict,
+    has_image: str
+) -> list:
     return [
         case_id,
         now_tw_str(),
@@ -241,7 +288,13 @@ def build_form_row_from_dict(user_id: str, display_name: str, case_id: str, pars
     ]
 
 
-def build_image_row(case_id: str, user_id: str, display_name: str, message_id: str, image_url: str) -> list:
+def build_image_row(
+    case_id: str,
+    user_id: str,
+    display_name: str,
+    message_id: str,
+    image_url: str
+) -> list:
     return [
         case_id,
         now_tw_str(),
@@ -258,22 +311,28 @@ def is_structured_case_text(text: str) -> bool:
     return matched_count >= 3
 
 
-def build_form_row_from_text(user_id: str, display_name: str, text: str, has_image: str = "N") -> list:
+def build_form_row_from_text(
+    user_id: str,
+    display_name: str,
+    text: str,
+    form_ws,
+    has_image: str = "N"
+) -> list:
     parsed = parse_multiline_text(text)
-    case_id = generate_case_id()
+    case_id = generate_case_id(form_ws)
     return build_form_row_from_dict(user_id, display_name, case_id, parsed, has_image)
 
 
 # =========================
 # Conversation helpers
 # =========================
-def start_conversation(user_id: str):
+def start_conversation(user_id: str, form_ws):
     user_state[user_id] = {
         "state": STATE_FILLING_FORM,
         "question_index": 0,
     }
     user_data[user_id] = {
-        "case_id": generate_case_id(),
+        "case_id": generate_case_id(form_ws),
         "answers": {},
         "image_count": 0,
     }
@@ -388,7 +447,7 @@ def save_form_data(form_ws, user_id: str, has_image: str):
 # =========================
 @app.route("/", methods=["GET"])
 def home():
-    return "VERSION-20260323-FINAL-FLOW", 200
+    return "VERSION-20260323-FINAL-FLOW-CASEID-B", 200
 
 
 @app.route("/callback", methods=["POST"])
@@ -477,7 +536,9 @@ def callback():
                         "若已上傳完畢，請輸入「完成」。"
                     )
                 except Exception as e:
+                    import traceback
                     print("Image handling exception:", repr(e))
+                    traceback.print_exc()
                     reply_text(reply_token, "圖片處理失敗，請再重新上傳一次。")
 
                 continue
@@ -509,9 +570,13 @@ def callback():
             # 指令：開始回報
             # =========================
             if text in ["開始回報", "我要回報", "開始填寫"]:
-                start_conversation(user_id)
+                start_conversation(user_id, form_ws)
                 first_question = get_current_question(user_id)
-                reply_text(reply_token, f"請輸入{first_question}")
+                case_id = get_case_id(user_id)
+                reply_text(
+                    reply_token,
+                    f"案件編號：{case_id}\n請輸入{first_question}"
+                )
                 continue
 
             current_state = get_state(user_id)
@@ -555,19 +620,18 @@ def callback():
                 if text in ["否", "不用", "不需要", "沒有"]:
                     save_form_data(form_ws, user_id, has_image="N")
                     preview_text = format_preview(get_answers(user_id))
+                    case_id = get_case_id(user_id)
                     clear_conversation(user_id)
                     reply_text(
                         reply_token,
+                        f"案件編號：{case_id}\n"
                         "已收到資料 ✅\n以下為本次回報內容：\n\n"
                         f"{preview_text}\n\n"
                         "本次回報已完成。"
                     )
                     continue
 
-                reply_text(
-                    reply_token,
-                    "請回覆「是」或「否」。"
-                )
+                reply_text(reply_token, "請回覆「是」或「否」。")
                 continue
 
             # =========================
@@ -578,10 +642,12 @@ def callback():
                     save_form_data(form_ws, user_id, has_image="Y")
                     preview_text = format_preview(get_answers(user_id))
                     image_count = get_image_count(user_id)
+                    case_id = get_case_id(user_id)
                     clear_conversation(user_id)
 
                     reply_text(
                         reply_token,
+                        f"案件編號：{case_id}\n"
                         "已收到資料與圖片 ✅\n\n"
                         f"{preview_text}\n\n"
                         f"共收到 {image_count} 張圖片。\n"
@@ -606,6 +672,7 @@ def callback():
                     user_id=user_id,
                     display_name=display_name,
                     text=text,
+                    form_ws=form_ws,
                     has_image="N",
                 )
                 print("FORM_ROW_DIRECT:", form_row)
@@ -613,6 +680,7 @@ def callback():
 
                 reply_text(
                     reply_token,
+                    f"案件編號：{form_row[0]}\n"
                     "已收到資料 ✅\n若需補充內容，請直接再傳一次完整格式，或輸入「開始回報」逐題填寫。"
                 )
             else:
