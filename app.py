@@ -34,13 +34,34 @@ user_state = {}
 user_data = {}
 
 QUESTION_FLOW = [
-    "服務廠",
-    "專員",
-    "車號",
-    "錯誤件號",
-    "錯誤工代",
-    "正確件號",
-    "正確工代",
+    {
+        "field": "服務廠",
+        "prompt": "1/7 請輸入【服務廠】\n例如：南港廠"
+    },
+    {
+        "field": "專員",
+        "prompt": "2/7 請輸入【專員姓名】\n例如：王小明"
+    },
+    {
+        "field": "車號",
+        "prompt": "3/7 請輸入【車號】\n例如：ABC-1234"
+    },
+    {
+        "field": "錯誤件號",
+        "prompt": "4/7 請輸入【錯誤件號】\n若有多個，請用逗號分隔\n例如：52119-0K902, 53301-0K420"
+    },
+    {
+        "field": "錯誤工代",
+        "prompt": "5/7 請輸入【錯誤工代】\n若有多個，請用逗號分隔\n例如：A12, B34"
+    },
+    {
+        "field": "正確件號",
+        "prompt": "6/7 請輸入【正確件號】\n若有多個，請用逗號分隔\n例如：52119-0K903, 53301-0K421"
+    },
+    {
+        "field": "正確工代",
+        "prompt": "7/7 請輸入【正確工代】\n若有多個，請用逗號分隔\n例如：A13, B35"
+    },
 ]
 
 STATE_FILLING_FORM = "filling_form"
@@ -142,6 +163,40 @@ def reply_text(reply_token: str, text: str):
         print("reply_text exception:", repr(e))
 
 
+def reply_texts(reply_token: str, texts: list[str]):
+    if not reply_token or not LINE_CHANNEL_ACCESS_TOKEN:
+        return
+
+    url = "https://api.line.me/v2/bot/message/reply"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+    }
+
+    messages = []
+    for text in texts:
+        if text and text.strip():
+            messages.append({
+                "type": "text",
+                "text": text
+            })
+
+    if not messages:
+        return
+
+    payload = {
+        "replyToken": reply_token,
+        "messages": messages[:5]
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=10)
+        if r.status_code != 200:
+            print("reply_texts failed:", r.status_code, r.text)
+    except Exception as e:
+        print("reply_texts exception:", repr(e))
+
+
 def get_line_image_content(message_id: str) -> bytes:
     if not LINE_CHANNEL_ACCESS_TOKEN:
         raise ValueError("Missing LINE_CHANNEL_ACCESS_TOKEN")
@@ -170,46 +225,8 @@ def upload_image_to_gcs(image_binary: bytes, filename: str) -> str:
 
 
 # =========================
-# Parsing helpers
+# Helpers
 # =========================
-EXPECTED_FIELDS = [
-    "服務廠",
-    "專員",
-    "車號",
-    "錯誤件號",
-    "錯誤工代",
-    "正確件號",
-    "正確工代",
-]
-
-
-def parse_multiline_text(text: str) -> dict:
-    data = {}
-
-    if not text:
-        return data
-
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        if ":" in line:
-            key, value = line.split(":", 1)
-        elif "：" in line:
-            key, value = line.split("：", 1)
-        else:
-            continue
-
-        key = key.strip()
-        value = value.strip()
-
-        if key in EXPECTED_FIELDS:
-            data[key] = value
-
-    return data
-
-
 def now_tw_str() -> str:
     return datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -224,14 +241,12 @@ def generate_case_id(form_ws) -> str:
     try:
         records = form_ws.get_all_values()
 
-        # 取 case_id 欄（第 1 欄），跳過標題列
         case_ids = [
             row[0].strip()
             for row in records[1:]
             if row and len(row) > 0 and row[0].strip()
         ]
 
-        # 格式: CASE-20260323-001-A7
         today_case_ids = [
             cid for cid in case_ids
             if cid.startswith(f"CASE-{today_str}-")
@@ -305,24 +320,6 @@ def build_image_row(
     ]
 
 
-def is_structured_case_text(text: str) -> bool:
-    parsed = parse_multiline_text(text)
-    matched_count = sum(1 for field in EXPECTED_FIELDS if parsed.get(field))
-    return matched_count >= 3
-
-
-def build_form_row_from_text(
-    user_id: str,
-    display_name: str,
-    text: str,
-    form_ws,
-    has_image: str = "N"
-) -> list:
-    parsed = parse_multiline_text(text)
-    case_id = generate_case_id(form_ws)
-    return build_form_row_from_dict(user_id, display_name, case_id, parsed, has_image)
-
-
 # =========================
 # Conversation helpers
 # =========================
@@ -341,10 +338,6 @@ def start_conversation(user_id: str, form_ws):
 def clear_conversation(user_id: str):
     user_state.pop(user_id, None)
     user_data.pop(user_id, None)
-
-
-def has_active_conversation(user_id: str) -> bool:
-    return user_id in user_state and user_id in user_data
 
 
 def get_state(user_id: str) -> str:
@@ -371,17 +364,17 @@ def set_question_index(user_id: str, idx: int):
     user_state[user_id]["question_index"] = idx
 
 
-def get_current_question(user_id: str) -> str:
+def get_current_question_prompt(user_id: str) -> str:
     idx = get_question_index(user_id)
     if 0 <= idx < len(QUESTION_FLOW):
-        return QUESTION_FLOW[idx]
+        return QUESTION_FLOW[idx]["prompt"]
     return ""
 
 
 def save_current_answer(user_id: str, answer: str):
     idx = get_question_index(user_id)
     if 0 <= idx < len(QUESTION_FLOW):
-        field_name = QUESTION_FLOW[idx]
+        field_name = QUESTION_FLOW[idx]["field"]
         user_data.setdefault(user_id, {})
         user_data[user_id].setdefault("answers", {})
         user_data[user_id]["answers"][field_name] = answer.strip()
@@ -442,12 +435,56 @@ def save_form_data(form_ws, user_id: str, has_image: str):
     form_ws.append_row(form_row, value_input_option="USER_ENTERED")
 
 
+def go_to_previous_question(user_id: str) -> bool:
+    idx = get_question_index(user_id)
+
+    if idx <= 0:
+        return False
+
+    new_idx = idx - 1
+    set_question_index(user_id, new_idx)
+
+    field_name = QUESTION_FLOW[new_idx]["field"]
+    user_data.setdefault(user_id, {})
+    user_data[user_id].setdefault("answers", {})
+    user_data[user_id]["answers"].pop(field_name, None)
+
+    return True
+
+
+def reset_answers(user_id: str):
+    case_id = get_case_id(user_id)
+
+    user_state[user_id] = {
+        "state": STATE_FILLING_FORM,
+        "question_index": 0,
+    }
+
+    user_data[user_id] = {
+        "case_id": case_id,
+        "answers": {},
+        "image_count": 0,
+    }
+
+
+def build_partial_preview(user_id: str) -> str:
+    answers = get_answers(user_id)
+
+    lines = []
+    for q in QUESTION_FLOW:
+        field = q["field"]
+        value = answers.get(field, "（未填）")
+        lines.append(f"{field}：{value}")
+
+    return "\n".join(lines)
+
+
 # =========================
 # Routes
 # =========================
 @app.route("/", methods=["GET"])
 def home():
-    return "VERSION-20260323-FINAL-FLOW-CASEID-B", 200
+    return "VERSION-20260323-FINAL-FULL", 200
 
 
 @app.route("/callback", methods=["POST"])
@@ -506,8 +543,7 @@ def callback():
                     reply_text(
                         reply_token,
                         "目前尚未進入圖片補充流程。\n"
-                        "若要建立新回報，請輸入「開始回報」；\n"
-                        "若要補充案件圖片，請先完成案件資料填寫。"
+                        "請先輸入「開始回報」，完成案件資料填寫後再上傳圖片。"
                     )
                     continue
 
@@ -532,8 +568,9 @@ def callback():
 
                     reply_text(
                         reply_token,
-                        f"已收到圖片 ✅\n目前已收到 {get_image_count(user_id)} 張。\n"
-                        "若已上傳完畢，請輸入「完成」。"
+                        f"已收到第 {get_image_count(user_id)} 張圖片 ✅\n"
+                        "若還有圖片請繼續上傳；\n"
+                        "全部完成後請輸入：完成"
                     )
                 except Exception as e:
                     import traceback
@@ -544,16 +581,44 @@ def callback():
                 continue
 
             # =========================
-            # 非文字 / 非圖片
+            # 非文字 / 非圖片（例如貼圖、影片、檔案）
             # =========================
             if message_type != "text":
                 print("Skip unsupported message type:", message_type)
+
+                current_state = get_state(user_id)
+
+                if current_state == STATE_FILLING_FORM:
+                    reply_text(
+                        reply_token,
+                        "目前正在填寫案件資料，請直接輸入文字內容。\n\n"
+                        "可用指令：上一題｜重填｜查看｜取消"
+                    )
+                elif current_state == STATE_ASK_HAS_IMAGE:
+                    reply_text(
+                        reply_token,
+                        "請回覆「是」或「否」，確認是否需要補充圖片。"
+                    )
+                elif current_state == STATE_UPLOADING_IMAGES:
+                    reply_text(
+                        reply_token,
+                        "目前為圖片上傳模式，請直接傳送圖片。\n"
+                        "全部完成後請輸入：完成"
+                    )
+                else:
+                    reply_text(
+                        reply_token,
+                        "若要建立案件回報，請輸入：開始回報"
+                    )
+
                 continue
 
+            # =========================
+            # 文字訊息處理
+            # =========================
             text = message.get("text", "").strip()
             print("TEXT:", text)
 
-            # 所有文字先存 raw_log
             raw_row = build_raw_row(user_id, text)
             print("RAW_ROW:", raw_row)
             raw_ws.append_row(raw_row, value_input_option="USER_ENTERED")
@@ -571,11 +636,20 @@ def callback():
             # =========================
             if text in ["開始回報", "我要回報", "開始填寫"]:
                 start_conversation(user_id, form_ws)
-                first_question = get_current_question(user_id)
+                first_prompt = get_current_question_prompt(user_id)
                 case_id = get_case_id(user_id)
-                reply_text(
+
+                reply_texts(
                     reply_token,
-                    f"案件編號：{case_id}\n請輸入{first_question}"
+                    [
+                        "已開始案件回報 ✅",
+                        f"案件編號：{case_id}\n\n"
+                        "接下來我會依序詢問 7 項資料，\n"
+                        "請直接回覆內容即可。\n\n"
+                        "可用指令：\n"
+                        "上一題｜重填｜查看｜取消",
+                        first_prompt
+                    ]
                 )
                 continue
 
@@ -585,8 +659,40 @@ def callback():
             # 狀態：填寫文字問題
             # =========================
             if current_state == STATE_FILLING_FORM:
+                # 指令：上一題
+                if text == "上一題":
+                    success = go_to_previous_question(user_id)
+
+                    if not success:
+                        reply_text(reply_token, "已經是第一題了，無法再返回。")
+                        continue
+
+                    prompt = get_current_question_prompt(user_id)
+                    reply_text(reply_token, f"已返回上一題 👆\n\n{prompt}")
+                    continue
+
+                # 指令：重填
+                if text in ["重填", "重新開始"]:
+                    reset_answers(user_id)
+
+                    prompt = get_current_question_prompt(user_id)
+                    reply_text(
+                        reply_token,
+                        "已清空資料，重新開始填寫 ✨\n\n" + prompt
+                    )
+                    continue
+
+                # 指令：查看
+                if text == "查看":
+                    preview = build_partial_preview(user_id)
+                    reply_text(
+                        reply_token,
+                        "目前填寫內容如下：\n\n" + preview
+                    )
+                    continue
+
                 if not text:
-                    reply_text(reply_token, "請直接輸入內容。")
+                    reply_text(reply_token, "此欄位尚未填寫，請直接輸入內容。")
                     continue
 
                 save_current_answer(user_id, text)
@@ -596,11 +702,13 @@ def callback():
                     set_state(user_id, STATE_ASK_HAS_IMAGE)
                     reply_text(
                         reply_token,
-                        "請問是否需要補充圖片？\n請回覆：是 / 否"
+                        "文字資料已填寫完成 ✅\n\n"
+                        "請問是否需要補充圖片？\n"
+                        "請回覆：是 / 否"
                     )
                 else:
-                    next_question = get_current_question(user_id)
-                    reply_text(reply_token, f"請輸入{next_question}")
+                    next_prompt = get_current_question_prompt(user_id)
+                    reply_text(reply_token, next_prompt)
 
                 continue
 
@@ -608,12 +716,42 @@ def callback():
             # 狀態：詢問是否補圖
             # =========================
             if current_state == STATE_ASK_HAS_IMAGE:
+                if text == "查看":
+                    preview = build_partial_preview(user_id)
+                    reply_text(
+                        reply_token,
+                        "目前填寫內容如下：\n\n" + preview + "\n\n請回覆：是 / 否"
+                    )
+                    continue
+
+                if text in ["重填", "重新開始"]:
+                    reset_answers(user_id)
+                    prompt = get_current_question_prompt(user_id)
+                    reply_text(
+                        reply_token,
+                        "已清空資料，重新開始填寫 ✨\n\n" + prompt
+                    )
+                    continue
+
+                if text == "上一題":
+                    set_state(user_id, STATE_FILLING_FORM)
+                    set_question_index(user_id, len(QUESTION_FLOW) - 1)
+                    field_name = QUESTION_FLOW[-1]["field"]
+                    user_data.setdefault(user_id, {})
+                    user_data[user_id].setdefault("answers", {})
+                    user_data[user_id]["answers"].pop(field_name, None)
+
+                    prompt = get_current_question_prompt(user_id)
+                    reply_text(reply_token, f"已返回上一題 👆\n\n{prompt}")
+                    continue
+
                 if text in ["是", "要", "有", "需要"]:
                     set_state(user_id, STATE_UPLOADING_IMAGES)
                     reply_text(
                         reply_token,
-                        "請開始上傳圖片，可連續傳送多張。\n"
-                        "全部上傳完畢後，請輸入「完成」。"
+                        "請開始上傳圖片，可連續傳送多張。\n\n"
+                        "上傳完成後請輸入：完成\n"
+                        "若要取消本次回報，請輸入：取消"
                     )
                     continue
 
@@ -622,12 +760,14 @@ def callback():
                     preview_text = format_preview(get_answers(user_id))
                     case_id = get_case_id(user_id)
                     clear_conversation(user_id)
-                    reply_text(
+
+                    reply_texts(
                         reply_token,
-                        f"案件編號：{case_id}\n"
-                        "已收到資料 ✅\n以下為本次回報內容：\n\n"
-                        f"{preview_text}\n\n"
-                        "本次回報已完成。"
+                        [
+                            "案件回報完成 ✅",
+                            f"案件編號：{case_id}",
+                            f"以下為本次回報內容：\n\n{preview_text}"
+                        ]
                     )
                     continue
 
@@ -645,58 +785,41 @@ def callback():
                     case_id = get_case_id(user_id)
                     clear_conversation(user_id)
 
+                    reply_texts(
+                        reply_token,
+                        [
+                            "案件回報完成 ✅",
+                            f"案件編號：{case_id}",
+                            f"以下為本次回報內容：\n\n{preview_text}\n\n共收到 {image_count} 張圖片。"
+                        ]
+                    )
+                    continue
+
+                if text == "查看":
+                    preview_text = format_preview(get_answers(user_id))
+                    image_count = get_image_count(user_id)
                     reply_text(
                         reply_token,
-                        f"案件編號：{case_id}\n"
-                        "已收到資料與圖片 ✅\n\n"
-                        f"{preview_text}\n\n"
-                        f"共收到 {image_count} 張圖片。\n"
-                        "本次回報已完成。"
+                        f"目前案件內容如下：\n\n{preview_text}\n\n目前已收到 {image_count} 張圖片。"
                     )
                     continue
 
                 reply_text(
                     reply_token,
                     "目前為圖片上傳模式，請直接傳送圖片。\n"
-                    "全部上傳完畢後請輸入「完成」。"
+                    "全部完成後請輸入：完成"
                 )
                 continue
 
             # =========================
-            # 原本功能：直接貼完整格式
-            # 只在沒有進行中流程時允許
+            # 沒有開始回報時的預設提示
             # =========================
-            if is_structured_case_text(text):
-                display_name = get_display_name(user_id)
-                form_row = build_form_row_from_text(
-                    user_id=user_id,
-                    display_name=display_name,
-                    text=text,
-                    form_ws=form_ws,
-                    has_image="N",
-                )
-                print("FORM_ROW_DIRECT:", form_row)
-                form_ws.append_row(form_row, value_input_option="USER_ENTERED")
-
-                reply_text(
-                    reply_token,
-                    f"案件編號：{form_row[0]}\n"
-                    "已收到資料 ✅\n若需補充內容，請直接再傳一次完整格式，或輸入「開始回報」逐題填寫。"
-                )
-            else:
-                reply_text(
-                    reply_token,
-                    "已收到訊息。\n\n"
-                    "若要逐題填寫，請輸入：開始回報\n\n"
-                    "若要一次貼上，請依照以下格式傳送：\n"
-                    "服務廠:\n"
-                    "專員:\n"
-                    "車號:\n"
-                    "錯誤件號:\n"
-                    "錯誤工代:\n"
-                    "正確件號:\n"
-                    "正確工代:"
-                )
+            reply_text(
+                reply_token,
+                "若要建立案件回報，請輸入：開始回報\n\n"
+                "系統會依序詢問：\n"
+                "服務廠、專員、車號、錯誤件號、錯誤工代、正確件號、正確工代"
+            )
 
         return "OK", 200
 
