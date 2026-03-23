@@ -14,7 +14,6 @@ from config import (
     GCS_BUCKET_NAME,
     LINE_CHANNEL_ACCESS_TOKEN,
     LINE_CHANNEL_SECRET,
-    QUESTION_FLOW,
     SPREADSHEET_ID,
     TW_TZ,
 )
@@ -192,3 +191,10 @@ def build_form_row(user_id: str, display_name: str, case_id: str, data: dict, ha
 
 def build_image_row(case_id: str, user_id: str, display_name: str, message_id: str, image_url: str) -> list:
     return [case_id, now_tw_str(), user_id, display_name, message_id, image_url]
+
+
+def safe_append_row(ws, row):
+    try:
+        ws.append_row(row, value_input_option="USER_ENTERED")
+    except Exception as e:
+        print("safe_append_row exception:", repr(e))
