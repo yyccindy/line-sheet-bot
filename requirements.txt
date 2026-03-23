@@ -3,3 +3,4 @@ requests
 gspread
 google-auth
 gunicorn
+google-cloud-storage
