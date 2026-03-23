@@ -74,15 +74,25 @@ def callback():
                 continue
 
             if text in CMD_START:
-                start_conversation(user_id, form_ws)
-                reply_texts(
-                    reply_token,
-                    [
-                        "已開始案件回報 ✅",
-                        f"案件編號：{get_case_id(user_id)}\n\n接下來我會依序詢問 7 項資料，\n請直接回覆內容即可。\n\n可用指令：\n上一題｜重填｜查看｜取消",
-                        get_current_question_prompt(user_id),
-                    ],
-                )
+                current_state = get_state(user_id)
+
+                if current_state:
+                    reply_text(
+                        reply_token,
+                        "你目前已有進行中的案件回報。\n\n"
+                        "可用指令：\n"
+                        "查看｜上一題｜重填｜取消"
+                    )
+                else:
+                    start_conversation(user_id, form_ws)
+                    reply_texts(
+                        reply_token,
+                        [
+                            "已開始案件回報 ✅",
+                            f"案件編號：{get_case_id(user_id)}\n\n接下來我會依序詢問 7 項資料，\n請直接回覆內容即可。\n\n可用指令：\n上一題｜重填｜查看｜取消",
+                            get_current_question_prompt(user_id),
+                        ],
+                    )
                 continue
 
             state = get_state(user_id)
