@@ -3,7 +3,13 @@ import os
 
 from flask import Flask, abort, request
 
-from config import CMD_CANCEL, CMD_START, STATE_ASK_HAS_IMAGE, STATE_FILLING_FORM, STATE_UPLOADING_IMAGES
+from config import (
+    CMD_CANCEL,
+    CMD_START,
+    STATE_ASK_HAS_IMAGE,
+    STATE_FILLING_FORM,
+    STATE_UPLOADING_IMAGES,
+)
 from conversation import (
     clear_conversation,
     get_case_id,
@@ -21,6 +27,7 @@ from services import (
     get_worksheets,
     reply_text,
     reply_texts,
+    safe_append_row,
     verify_line_signature,
 )
 
@@ -66,7 +73,7 @@ def callback():
                 continue
 
             text = message.get("text", "").strip()
-            raw_ws.append_row(build_raw_row(user_id, text), value_input_option="USER_ENTERED")
+            safe_append_row(raw_ws, build_raw_row(user_id, text))
 
             if text in CMD_CANCEL:
                 clear_conversation(user_id)
