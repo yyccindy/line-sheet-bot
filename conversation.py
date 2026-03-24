@@ -226,24 +226,47 @@ def handle_non_text(reply_token: str, user_id: str):
     state = get_state(user_id)
 
     if state == STATE_FILLING_FORM:
-        send_current_question(
+        reply_texts(
             reply_token,
-            user_id,
-            "目前正在填寫案件資料，請直接輸入文字內容。\n\n可用指令：上一題｜重填｜查看｜取消",
+            [
+                "目前不接收貼圖、影片、語音、檔案或其他非文字訊息。",
+                "請直接輸入文字內容。\n\n可用指令：上一題｜重填｜查看｜取消\n\n請繼續回答目前這一題：\n" + get_current_question_prompt(user_id),
+            ],
         )
     elif state == STATE_ASK_HAS_IMAGE:
-        reply_text(reply_token, "請繼續回答是否需要補充圖片：\n請回覆：是 / 否")
+        reply_texts(
+            reply_token,
+            [
+                "目前這一步不接收貼圖、影片、語音、檔案或其他非文字訊息。",
+                "請直接回覆：是 / 否",
+            ],
+        )
     elif state == STATE_UPLOADING_IMAGES:
-        reply_text(reply_token, "目前為圖片上傳模式，請直接傳送圖片。\n若沒有圖片要補充，也可直接輸入：完成")
+        reply_texts(
+            reply_token,
+            [
+                "目前為圖片補充流程，只接受圖片上傳。",
+                "不接收貼圖、影片、語音、檔案或其他訊息。\n若沒有圖片要補充，也可直接輸入：完成",
+            ],
+        )
     else:
-        reply_text(reply_token, "若要建立案件回報，請輸入：開始回報")
+        reply_texts(
+            reply_token,
+            [
+                "目前不接收貼圖、影片、語音、檔案或其他非文字訊息 🙏",
+                "若要建立案件回報，請輸入：開始回報",
+            ],
+        )
 
 
 def handle_image_message(raw_ws, image_ws, reply_token: str, user_id: str, message_id: str):
     safe_append_row(raw_ws, build_raw_row(user_id, f"[IMAGE:{message_id}]"))
 
     if get_state(user_id) != STATE_UPLOADING_IMAGES:
-        reply_text(reply_token, "目前尚未進入圖片補充流程。\n請先輸入「開始回報」，完成案件資料填寫後再上傳圖片。")
+        reply_text(
+            reply_token,
+            "目前尚未進入圖片補充流程。\n請先輸入「開始回報」，完成案件資料填寫後再上傳圖片。",
+        )
         return
 
     try:
@@ -350,4 +373,7 @@ def handle_uploading_images(reply_token: str, user_id: str, text: str, form_ws):
         send_image_mode_summary(reply_token, user_id)
         return
 
-    reply_text(reply_token, "目前為圖片上傳模式，請直接傳送圖片。\n若還有圖片請繼續上傳；\n若沒有圖片要補充，也可直接輸入：完成")
+    reply_text(
+        reply_token,
+        "目前為圖片上傳模式，請直接傳送圖片。\n若還有圖片請繼續上傳；\n若沒有圖片要補充，也可直接輸入：完成",
+    )
