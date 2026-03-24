@@ -89,6 +89,7 @@ def callback():
                         "你目前已有進行中的案件回報。\n\n"
                         "可用指令：\n"
                         "查看｜上一題｜重填｜取消"
+                        "請繼續回答目前這一題：\n" + get_current_question_prompt(user_id),
                     )
                 else:
                     start_conversation(user_id, form_ws)
