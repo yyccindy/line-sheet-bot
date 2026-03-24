@@ -76,8 +76,16 @@ def callback():
             safe_append_row(raw_ws, build_raw_row(user_id, text))
 
             if text in CMD_CANCEL:
-                clear_conversation(user_id)
-                reply_text(reply_token, "已取消本次回報。")
+                current_state = get_state(user_id)
+
+                if current_state:
+                    clear_conversation(user_id)
+                    reply_text(reply_token, "已取消本次回報。")
+                else:
+                    reply_text(
+                        reply_token,
+                        "目前沒有進行中的案件回報。\n若要建立新案件，請輸入：開始回報"
+                    )
                 continue
 
             if text in CMD_START:
