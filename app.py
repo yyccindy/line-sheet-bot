@@ -84,7 +84,7 @@ def callback():
                 current_state = get_state(user_id)
 
                 if current_state:
-                    reply_text(
+                    reply_texts(
                         reply_token,
                         [
                             "你目前已有進行中的案件回報，請先完成目前案件 🙏\n\n"
