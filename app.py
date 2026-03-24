@@ -34,6 +34,26 @@ from services import (
 app = Flask(__name__)
 
 
+def user_started_before(raw_ws, user_id: str) -> bool:
+    """
+    檢查這位使用者是否曾經傳過開始回報指令。
+    只掃最近 50 筆 raw_log，避免每次都讀太多資料。
+    """
+    try:
+        records = raw_ws.get_all_values()
+        if not records:
+            return False
+
+        recent_rows = records[-50:]
+        for row in reversed(recent_rows):
+            if len(row) >= 3 and row[1] == user_id and row[2] in CMD_START:
+                return True
+        return False
+    except Exception as e:
+        print("user_started_before error:", repr(e))
+        return False
+
+
 @app.route("/", methods=["GET"])
 def home():
     return "VERSION-OPTIMIZED", 200
@@ -122,10 +142,19 @@ def callback():
             elif state == STATE_UPLOADING_IMAGES:
                 handle_uploading_images(reply_token, user_id, text, form_ws)
             else:
-                reply_text(
-                    reply_token,
-                    "若要建立案件回報，請輸入：開始回報\n\n系統會依序詢問：\n服務廠、專員、車號、錯誤件號、錯誤工代、正確件號、正確工代",
-                )
+                if user_started_before(raw_ws, user_id):
+                    reply_texts(
+                        reply_token,
+                        [
+                            "目前未查詢到進行中的案件回報。\n可能因閒置時間較久，系統已重新整理狀態。",
+                            "若要重新建立案件，請輸入：開始回報",
+                        ],
+                    )
+                else:
+                    reply_text(
+                        reply_token,
+                        "若要建立案件回報，請輸入：開始回報\n\n系統會依序詢問：\n服務廠、專員、車號、錯誤件號、錯誤工代、正確件號、正確工代",
+                    )
 
         return "OK", 200
 
